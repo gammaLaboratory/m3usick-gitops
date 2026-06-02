@@ -4,12 +4,13 @@ This deploys the application repository `gammaLaboratory/m3usick` into the home 
 
 ## Environments
 
-- `overlays/dev`: `develop` branch → `https://dev.m3usick.com` → namespace `m3usick-dev`
-- `overlays/prod`: `main` branch → `https://m3usick.com` → namespace `m3usick-prod`
+- `overlays/dev`: `develop` branch image → `https://dev.m3usick.com` → namespace `m3usick-dev`
+- `overlays/prod`: `main` branch image → `https://m3usick.com` → namespace `m3usick-prod`
 
-The pod builds the selected Git branch at startup from the public GitHub repository with pinned `pnpm@8.15.9` and Go `1.23.10`. The init container builds the Vite SPA and the Go server binary, then the web container runs the Go server on port `8080` and serves the SPA from `web/dist`.
+The pod runs an immutable image built by Concourse from `gammaLaboratory/m3usick/Dockerfile` and pushed to ECR. Kustomize `images:` entries in each overlay select the ECR repository and tag. Concourse updates those tags after a successful build:
 
-This avoids needing a container registry for the first migration from Vercel. Later, this should be replaced by CI-built immutable images.
+- dev overlay: automatic after `develop` build/push
+- prod overlay: manual gate after `main` build/push
 
 ## Runtime environment
 
@@ -33,10 +34,7 @@ Secret-backed values read from the existing `m3usick-env` Secret:
 - `AWS_SECRET_ACCESS_KEY`
 - `AUTH_TOKEN_PEPPER` is sourced from the existing `AUTH_SECRET` key during the Vite + Go migration. Rotate to a dedicated `AUTH_TOKEN_PEPPER` key when auth cutover is ready.
 
-The init container clones the private app repository with a separate `m3usick-git` Secret:
-
-- `GITHUB_TOKEN`
-- `GITHUB_USERNAME` (optional)
+Image pulls use the per-namespace `ecr-secret` docker-registry Secret. k8s-home's ECR token refresh systemd timer must refresh `ecr-secret` in both `m3usick-dev` and `m3usick-prod`.
 
 ## Secrets
 
@@ -59,16 +57,6 @@ kubectl -n m3usick-dev create secret generic m3usick-env \
 ```
 
 Do not commit `.env.k8s.*` or rendered Secret YAML.
-
-## Apply
-
-```bash
-cd ~/ghq/github.com/gammaLaboratory/jarvis-miruo-v2
-kubectl apply -k projects/m3usick/app/overlays/dev
-kubectl apply -k projects/m3usick/app/overlays/prod
-```
-
-Task 19 applies only the dev overlay. Production apply is intentionally deferred.
 
 ## Verify
 
