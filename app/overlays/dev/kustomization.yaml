@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: m3usick-dev
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+patches:
+  - target:
+      kind: Deployment
+      name: m3usick-web
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/initContainers/0/env/0/value
+        value: develop
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2/value
+        value: development
+      - op: replace
+        path: /spec/template/spec/containers/0/env/4/value
+        value: m3usick-auth-dev
+      - op: replace
+        path: /spec/template/spec/containers/0/env/8/value
+        value: https://dev.m3usick.com
+  - target:
+      kind: Ingress
+      name: m3usick-web
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: dev.m3usick.com

@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: m3usick-web
+  labels:
+    app.kubernetes.io/name: m3usick
+    app.kubernetes.io/component: web
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: dev.m3usick.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: m3usick-web
+                port:
+                  name: http

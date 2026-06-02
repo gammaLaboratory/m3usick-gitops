@@ -1,0 +1,175 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: m3usick-web
+  labels:
+    app.kubernetes.io/name: m3usick
+    app.kubernetes.io/component: web
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: m3usick
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: m3usick
+        app.kubernetes.io/component: web
+    spec:
+      restartPolicy: Always
+      initContainers:
+        - name: checkout-build
+          image: node:20-bookworm
+          imagePullPolicy: IfNotPresent
+          workingDir: /workspace
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              export PATH="/usr/local/go/bin:${PATH}"
+
+              if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
+                apt-get update
+                apt-get install -y --no-install-recommends git curl ca-certificates
+                rm -rf /var/lib/apt/lists/*
+              fi
+
+              if ! command -v go >/dev/null 2>&1; then
+                arch="$(dpkg --print-architecture)"
+                case "${arch}" in
+                  amd64) go_arch=amd64 ;;
+                  arm64) go_arch=arm64 ;;
+                  *) echo "unsupported architecture for Go: ${arch}" >&2; exit 1 ;;
+                esac
+                curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz" -o /tmp/go.tgz
+                rm -rf /usr/local/go
+                tar -C /usr/local -xzf /tmp/go.tgz
+                rm -f /tmp/go.tgz
+              fi
+
+              cat >/tmp/git-askpass <<'EOF'
+              #!/usr/bin/env bash
+              case "$1" in
+                *Username*) printf '%s\n' "${GITHUB_USERNAME:-x-access-token}" ;;
+                *Password*) printf '%s\n' "${GITHUB_TOKEN}" ;;
+                *) printf '\n' ;;
+              esac
+              EOF
+              chmod 700 /tmp/git-askpass
+
+              rm -rf /workspace/app
+              GIT_ASKPASS=/tmp/git-askpass GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "${GIT_REF}" https://github.com/gammaLaboratory/m3usick.git /workspace/app
+              rm -f /tmp/git-askpass
+              cd /workspace/app
+              corepack enable
+              corepack prepare pnpm@8.15.9 --activate
+              pnpm install --frozen-lockfile
+              pnpm build:web
+              mkdir -p /workspace/app/bin
+              cd /workspace/app/server
+              go build -o /workspace/app/bin/m3usick ./cmd/m3usick
+          env:
+            - name: GIT_REF
+              value: develop
+            - name: GO_VERSION
+              value: 1.23.10
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: m3usick-git
+                  key: GITHUB_TOKEN
+            - name: GITHUB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: m3usick-git
+                  key: GITHUB_USERNAME
+                  optional: true
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+      containers:
+        - name: web
+          image: node:20-bookworm
+          imagePullPolicy: IfNotPresent
+          workingDir: /workspace/app/server
+          command:
+            - bash
+            - -lc
+            - exec /workspace/app/bin/m3usick
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: HTTP_ADDR
+              value: :8080
+            - name: WEB_DIST_DIR
+              value: ../web/dist
+            - name: APP_ENV
+              value: development
+            - name: AWS_REGION
+              value: ap-northeast-1
+            - name: M3USICK_AUTH_TABLE
+              value: m3usick-auth-dev
+            - name: AUTH_TOKEN_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: m3usick-env
+                  key: AUTH_SECRET
+            - name: SESSION_COOKIE_NAME
+              value: m3usick_session
+            - name: CSRF_COOKIE_NAME
+              value: m3usick_csrf
+            - name: ALLOWED_ORIGINS
+              value: https://dev.m3usick.com
+            - name: SESSION_TTL_HOURS
+              value: "8760"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: m3usick-env
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: m3usick-env
+                  key: AWS_SECRET_ACCESS_KEY
+          readinessProbe:
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 2
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 4Gi
