@@ -7,14 +7,16 @@ resources:
   - namespace.yaml
   - ../../base
 
+images:
+  - name: m3usick-web
+    newName: 004908959120.dkr.ecr.ap-northeast-1.amazonaws.com/m3usick
+    newTag: 7b63fc3ddcd86f5bd99e65bdfda869a0d2d0d9c1
+
 patches:
   - target:
       kind: Deployment
       name: m3usick-web
     patch: |-
-      - op: replace
-        path: /spec/template/spec/initContainers/0/env/0/value
-        value: develop
       - op: replace
         path: /spec/template/spec/containers/0/env/2/value
         value: development
