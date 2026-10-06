@@ -10,7 +10,7 @@ resources:
 images:
   - name: m3usick-web
     newName: 004908959120.dkr.ecr.ap-northeast-1.amazonaws.com/m3usick
-    newTag: 1e1d102b0c3ef1f81acbd69d1a8b4ba7e5ab5fb5
+    newTag: 9dc28930efa818853a1c5d901b7473b809a89cf6
 patches:
   - target:
       kind: Deployment
